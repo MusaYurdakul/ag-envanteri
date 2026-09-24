@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Kisisel ve hassas ayarlar
+config.ini
+
+# Uretilen ciktilar (gercek ag verisi icerir)
+raporlar/
+loglar/
+*.xlsx
+*.html
+envanter.db
+
+# Yedekler ve kisisel belgeler
+eski_taslak/
+staj-devir-notu.md
+staj-defteri-semalar.pdf
