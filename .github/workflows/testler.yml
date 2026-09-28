@@ -52,5 +52,9 @@ jobs:
       - name: "Test: tarama guvenlik kilidi"
         run: python test_guvenlik.py
 
+      - name: "Test: web paneli"
+        run: python test_panel.py
+
       - name: "Demo rapor uretimi"
         run: python demo.py
+        

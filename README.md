@@ -16,6 +16,7 @@ Bilgisayar Programcılığı stajı sürecinde geliştirilmiştir.
 - **Cihaz bilgisi toplama:** Ters DNS ile hostname, ARP tablosundan MAC adresi, OUI veritabanından üretici, TCP ile açık portlar.
 - **SNMP desteği:** Cihaz kimliği ve yazıcılarda toner/sarf malzeme seviyeleri.
 - **Cihaz tipi tahmini:** Açık portlar, üretici, hostname kalıpları, SNMP açıklaması ve MAC özelliklerine bakarak kural tabanlı sınıflandırma (yazıcı, kamera, sunucu, ağ cihazı, bilgisayar, mobil, IoT). Her tahmin güven seviyesi ve gerekçesiyle birlikte verilir; sanal makineler ayrıca işaretlenir.
+- **Web paneli:** Tarama geçmişini tarayıcıda gösteren yerel, salt okunur Flask paneli: özet ve grafikler, tüm cihazlar, cihaz bazında IP ve tarama geçmişi, IP / MAC / hostname araması.
 - **Excel ve HTML rapor:** Biçimlendirilmiş Excel dosyası ve tarayıcıda açılan, aranabilir ve sıralanabilir tek dosyalık HTML rapor. Harici kütüphane veya internet bağlantısı gerektirmez.
 - **Değişiklik tespiti:** Her tarama bir öncekiyle karşılaştırılır. Eşleştirme MAC adresine göre yapıldığından, DHCP ile IP adresi değişen bir cihaz "kaybolan + yeni" yerine "değişen" olarak raporlanır.
 - **Tarama geçmişi:** SQLite veritabanında her cihazın ilk/son görülme zamanı, kullandığı IP adresleri ve bir IP'yi zaman içinde hangi cihazların kullandığı sorgulanabilir.
@@ -85,10 +86,23 @@ python veritabani.py --cihaz AA:BB:CC:DD:EE:FF    # bu cihazin gecmisi
 python veritabani.py --ice-aktar "raporlar/envanter_*.xlsx"   # eski raporlari ice aktarir
 
 python guvenlik.py 192.168.1.0/24       # bu aralik taranabilir mi?
-python demo.py                          # ornek veriyle demo HTML rapor
+python demo.py                          # ornek veriyle demo HTML rapor ve demo.db
 ```
 
 Raporlar `raporlar/`, günlük kayıtları `loglar/` klasörüne yazılır.
+
+### Web paneli
+
+```
+python panel.py                 # http://127.0.0.1:5000 adresini tarayicida acar
+python panel.py --db demo.db    # demo verisiyle
+```
+
+![Web paneli](docs/panel.png)
+
+Panel `envanter.db`'deki tarama geçmişini gösterir: özet kartları ve taramalara göre cihaz sayısı grafiği, tip dağılımı, son 7 günde ilk kez görülen ve uzun süredir görülmeyen cihazlar, tüm cihazların aranabilir ve sıralanabilir listesi, her cihaz için kullandığı IP adresleri ve tarama tarama geçmişi. Üstteki arama kutusu IP adresi girildiğinde o adresi zaman içinde hangi cihazların kullandığını gösterir.
+
+Güvenlik açısından panel yalnızca `127.0.0.1` üzerinde dinler, yani ağdaki başka bilgisayarlar erişemez; veritabanını salt okunur modda açar, panelden veri değiştirilemez.
 
 ### Zamanlanmış çalıştırma
 
@@ -112,13 +126,14 @@ Araç bu riski azaltmak için tarama öncesinde iki kontrol yapar:
 
 ## Testler
 
-Testler ağ taraması yapmaz; sahte verilerle çalışır.
+Testler ağ taraması yapmaz; sahte verilerle çalışır. Her güncellemede GitHub Actions ile Windows üzerinde Python 3.12 ve 3.14 sürümlerinde otomatik çalıştırılır.
 
 ```
 python test_karsilastir.py    # MAC tabanli karsilastirma (8 senaryo)
 python test_veritabani.py     # tarama gecmisi (10 senaryo)
 python test_cihaz_tipi.py     # cihaz tipi tahmini (10 senaryo)
 python test_guvenlik.py       # tarama guvenlik kilidi (9 senaryo)
+python test_panel.py          # web paneli (12 senaryo)
 ```
 
 ## Proje yapısı
@@ -138,7 +153,8 @@ python test_guvenlik.py       # tarama guvenlik kilidi (9 senaryo)
 | `karsilastir.py` | MAC tabanlı rapor karşılaştırma |
 | `veritabani.py` | SQLite tarama geçmişi ve sorgular |
 | `bildirim.py` | E-posta bildirimi |
-| `demo.py` | Demo rapor üretimi |
+| `panel.py` | Yerel, salt okunur web paneli (Flask) |
+| `demo.py` | Demo rapor ve demo veritabanı üretimi |
 | `envanter_calistir.bat` | Zamanlanmış görev için başlatıcı |
 
 ## Bilinen sınırlamalar

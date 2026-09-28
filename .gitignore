@@ -12,6 +12,7 @@ loglar/
 *.xlsx
 *.html
 envanter.db
+*.db
 
 # Yedekler ve kisisel belgeler
 eski_taslak/

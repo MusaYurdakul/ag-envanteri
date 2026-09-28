@@ -1,15 +1,24 @@
 """
-demo.py — README ekran goruntuleri icin ornek rapor uretir.
+demo.py — README ekran goruntuleri icin ornek veri uretir.
 
-Hicbir ag taramasi yapmaz. Tamamen uydurma bir ofis agi verisiyle
-HTML raporu olusturur; gercek IP, MAC veya hostname icermez.
+Hicbir ag taramasi yapmaz, gercek envanter.db'ye dokunmaz. Tamamen uydurma
+bir ofis agi verisiyle:
+  - raporlar/demo_*.html  -> ornek HTML rapor
+  - demo.db               -> 14 gunluk ornek tarama gecmisi (web paneli icin)
 
 Calistirma:
     python demo.py
+    python panel.py --db demo.db
 """
 
-from html_rapor import html_yaz
+import os
+from datetime import datetime, timedelta
 
+from html_rapor import html_yaz
+from veritabani import kaydet
+
+
+DEMO_AG = "192.168.10.0/24"
 
 DEMO_CIHAZLAR = [
     {"ip": "192.168.10.1", "hostname": "gw-merkez", "mac": "00:1B:54:10:00:01",
@@ -52,9 +61,58 @@ DEMO_CIHAZLAR = [
      "uretici": "-", "portlar": "-", "snmp": "-", "toner": "-"},
 ]
 
+# Yalnizca gecmiste gorulen / sonradan gelen cihazlar
+ESKI_YAZICI = {"ip": "192.168.10.52", "hostname": "PRN-DEPO", "mac": "00:80:77:52:52:52",
+               "uretici": "Brother Industries", "portlar": "80/HTTP, 9100/JetDirect",
+               "snmp": "Brother HL-L5100DN", "toner": "Siyah: %35"}
+MISAFIR = {"ip": "192.168.10.120", "hostname": "LAPTOP-MISAFIR", "mac": "F4:A4:75:12:01:20",
+           "uretici": "Intel Corporate", "portlar": "445/SMB",
+           "snmp": "-", "toner": "-"}
+
+
+def _gun_cihazlari(gun):
+    """14 gunluk senaryonun gun'uncu gunundeki cihaz listesi (0 = en eski gun)."""
+    cihazlar = []
+    for c in DEMO_CIHAZLAR:
+        c = dict(c)
+        # Dizustu 7. gunde DHCP'den yeni IP aliyor
+        if c["hostname"] == "LAPTOP-IT02" and gun >= 7:
+            c["ip"] = "192.168.10.35"
+        # Dahua kamera 9. gun erisilemiyor
+        if c["mac"] == "3C:EF:8C:71:71:71" and gun == 9:
+            continue
+        # Telefon sadece bazi gunler bagli
+        if c["mac"] == "DA:A1:19:5C:3E:77" and gun % 3 != 0 and gun != 13:
+            continue
+        cihazlar.append(c)
+    # Eski depo yazicisi ilk 5 gun var, sonra agdan cikiyor
+    if gun < 5:
+        cihazlar.append(dict(ESKI_YAZICI))
+    # Misafir dizustu son 3 gunde geliyor
+    if gun >= 11:
+        cihazlar.append(dict(MISAFIR))
+    return cihazlar
+
+
+def demo_veritabani(yol="demo.db", gun_sayisi=14):
+    """Her gun 20:00'de bir tarama yapilmis gibi ornek gecmis olusturur."""
+    if os.path.exists(yol):
+        os.remove(yol)
+    bugun = datetime.now().replace(hour=20, minute=0, second=0, microsecond=0)
+    if bugun > datetime.now():
+        bugun -= timedelta(days=1)
+    for gun in range(gun_sayisi):
+        zaman = bugun - timedelta(days=gun_sayisi - 1 - gun)
+        kaydet(_gun_cihazlari(gun), DEMO_AG, f"demo_{zaman:%Y%m%d_%H%M}.xlsx", zaman, yol)
+    return yol
+
 
 if __name__ == "__main__":
     yol = html_yaz(DEMO_CIHAZLAR, klasor="raporlar", on_ek="demo",
-                   ag="192.168.10.0/24 (DEMO VERI)", toner_esigi=20)
-    print(f"Demo rapor yazildi: {yol}")
-    print("Tarayicida acmak icin:  start " + yol.replace("/", "\\"))
+                   ag=f"{DEMO_AG} (DEMO VERI)", toner_esigi=20)
+    print(f"Demo rapor yazildi     : {yol}")
+    db = demo_veritabani()
+    print(f"Demo veritabani yazildi: {db} (14 gunluk ornek gecmis)")
+    print()
+    print("Raporu acmak icin : start " + yol.replace("/", "\\"))
+    print("Paneli acmak icin : python panel.py --db demo.db")
