@@ -1,5 +1,7 @@
 # Ağ Envanteri Aracı
 
+[![Testler](https://github.com/MusaYurdakul/ag-envanteri/actions/workflows/testler.yml/badge.svg)](https://github.com/MusaYurdakul/ag-envanteri/actions/workflows/testler.yml)
+
 Yerel ağdaki cihazları otomatik olarak keşfeden, tanımlayan ve zaman içindeki değişiklikleri takip eden bir Python aracı. Tek komutla ağı tarar; her cihazın IP, MAC, üretici, açık port ve SNMP bilgilerini toplar, cihaz tipini tahmin eder, Excel ve etkileşimli HTML rapor üretir, geçmişi veritabanında saklar ve önemli bir değişiklik olduğunda e-posta ile bildirir.
 
 Bilgisayar Programcılığı stajı sürecinde geliştirilmiştir.

@@ -1,0 +1,56 @@
+name: Testler
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }} / Windows
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+
+    env:
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python ${{ matrix.python }} kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Bagimliliklari kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sozdizimi kontrolu
+        run: python -m compileall -q .
+
+      - name: "Test: MAC tabanli karsilastirma"
+        run: python test_karsilastir.py
+
+      - name: "Test: tarama gecmisi (SQLite)"
+        run: python test_veritabani.py
+
+      - name: "Test: cihaz tipi tahmini"
+        run: python test_cihaz_tipi.py
+
+      - name: "Test: tarama guvenlik kilidi"
+        run: python test_guvenlik.py
+
+      - name: "Demo rapor uretimi"
+        run: python demo.py
