@@ -15,7 +15,8 @@ from cihazbilgi import hostname_bul, mac_tablosu, uretici_bul, acik_portlar
 from snmp_bilgi import snmp_ozet
 from rapor import excel_yaz
 from karsilastir import karsilastir
-from bildirim import ozet_olustur, gonder
+from bildirim import ozet_olustur, gonder, konu_olustur
+from kayitli_cihazlar import oku as kayitli_oku, tanimsiz_mi
 from html_rapor import html_yaz
 
 log = gunluk_kur()
@@ -168,14 +169,21 @@ def main():
             log.error(f"Karsilastirma yapilamadi: {hata}")
     else:
         log.info("Onceki rapor bulunamadi, karsilastirma atlandi.")
+   
+    kayitlar = kayitli_oku()
+    if kayitlar is not None:
+        tanimsizlar = [c for c in cihazlar if tanimsiz_mi(kayitlar, c.get("mac"), c.get("ip"))]
+        if tanimsizlar:
+            log.warning(f"Tanimsiz cihaz: {len(tanimsizlar)} -> " + ", ".join(c["ip"] for c in tanimsizlar))
+        else:
+            log.info("Tum cihazlar bilinen cihaz listesinde.")
 
     if ayar.eposta_etkin:
-        govde = ozet_olustur(dusuk_tonerler, yeni_cihazlar, kaybolanlar, degisenler)
+        govde = ozet_olustur(dusuk_tonerler, yeni_cihazlar, kaybolanlar, degisenler, kayitlar)
         if govde:
-            gonder(ayar, f"[Envanter] {hedef_ag} bildirimi", govde)
+            gonder(ayar, konu_olustur(hedef_ag, yeni_cihazlar, kayitlar), govde)
         else:
             log.info("Bildirilecek degisiklik yok, e-posta gonderilmedi.")
-
 
 if __name__ == "__main__":
     main()

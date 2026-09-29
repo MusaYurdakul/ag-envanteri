@@ -3,7 +3,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from datetime import datetime
-
+from kayitli_cihazlar import bul, tanimsiz_mi
 from gunluk import gunluk_kur
 
 log = gunluk_kur()
@@ -11,13 +11,42 @@ log = gunluk_kur()
 SIFRE_DEGISKENI = "ENVANTER_SMTP_SIFRE"
 
 
-def ozet_olustur(dusuk_tonerler, yeni_cihazlar, kaybolanlar, degisenler=None):
+def _cihaz_etiketi(c, kayitlar):
+    """Mail satiri icin cihaz etiketi: kayitli ad, [TANIMSIZ] ya da bos."""
+    if kayitlar is None:
+        return ""
+    kayit = bul(kayitlar, c.get("MAC Adresi"), c.get("IP Adresi"))
+    if kayit is None:
+        return "  [TANIMSIZ]"
+    return f"  [{kayit['ad']}]" if kayit.get("ad") else "  [kayitli]"
+
+
+def konu_olustur(hedef_ag, yeni_cihazlar, kayitlar=None):
+    """E-posta konusu. Yeni tanimsiz cihaz varsa UYARI ile baslar."""
+    tanimsiz = [c for c in yeni_cihazlar
+                if tanimsiz_mi(kayitlar, c.get("MAC Adresi"), c.get("IP Adresi"))]
+    if tanimsiz:
+        return f"[Envanter] UYARI: {len(tanimsiz)} tanimsiz cihaz - {hedef_ag}"
+    return f"[Envanter] {hedef_ag} bildirimi"
+
+
+def ozet_olustur(dusuk_tonerler, yeni_cihazlar, kaybolanlar, degisenler=None, kayitlar=None):
     """Bildirilecek bir sey varsa e-posta metnini dondurur, yoksa None."""
     degisenler = degisenler or []
     if not (dusuk_tonerler or yeni_cihazlar or kaybolanlar or degisenler):
         return None
 
     satirlar = [f"Ag envanteri bildirimi - {datetime.now():%d.%m.%Y %H:%M}", ""]
+
+    tanimsiz_yeniler = [c for c in yeni_cihazlar
+                        if tanimsiz_mi(kayitlar, c.get("MAC Adresi"), c.get("IP Adresi"))]
+    if tanimsiz_yeniler:
+        satirlar.append(f"!!! TANIMSIZ YENI CIHAZ ({len(tanimsiz_yeniler)}) - bilinen cihaz listesinde yok")
+        for c in tanimsiz_yeniler:
+            satirlar.append(f"  - {c.get('IP Adresi')}  {c.get('Tip') or '-'}  "
+                            f"{c.get('MAC Adresi', '-')}  {c.get('Uretici', '-')}  {c.get('Hostname', '-')}")
+        satirlar.append("  Taniyorsan bilinen_cihazlar.csv dosyasina ekle.")
+        satirlar.append("")
 
     if dusuk_tonerler:
         satirlar.append(f"DUSUK TONER ({len(dusuk_tonerler)})")
@@ -28,13 +57,15 @@ def ozet_olustur(dusuk_tonerler, yeni_cihazlar, kaybolanlar, degisenler=None):
     if yeni_cihazlar:
         satirlar.append(f"YENI CIHAZ ({len(yeni_cihazlar)})")
         for c in yeni_cihazlar:
-                        satirlar.append(f"  - {c.get('IP Adresi')}  {c.get('Tip') or '-'}  {c.get('MAC Adresi', '-')}  {c.get('Uretici', '-')}")
+            satirlar.append(f"  - {c.get('IP Adresi')}  {c.get('Tip') or '-'}  {c.get('MAC Adresi', '-')}  "
+                            f"{c.get('Uretici', '-')}{_cihaz_etiketi(c, kayitlar)}")
         satirlar.append("")
 
     if kaybolanlar:
         satirlar.append(f"ERISILEMEYEN CIHAZ ({len(kaybolanlar)})")
         for c in kaybolanlar:
-                        satirlar.append(f"  - {c.get('IP Adresi')}  {c.get('Tip') or '-'}  {c.get('Uretici', '-')}")
+            satirlar.append(f"  - {c.get('IP Adresi')}  {c.get('Tip') or '-'}  "
+                            f"{c.get('Uretici', '-')}{_cihaz_etiketi(c, kayitlar)}")
         satirlar.append("")
 
     if degisenler:

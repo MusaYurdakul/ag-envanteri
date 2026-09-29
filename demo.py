@@ -5,12 +5,14 @@ Hicbir ag taramasi yapmaz, gercek envanter.db'ye dokunmaz. Tamamen uydurma
 bir ofis agi verisiyle:
   - raporlar/demo_*.html  -> ornek HTML rapor
   - demo.db               -> 14 gunluk ornek tarama gecmisi (web paneli icin)
+  - demo_bilinen_cihazlar.csv -> ornek bilinen cihaz listesi
 
 Calistirma:
     python demo.py
-    python panel.py --db demo.db
+    python panel.py --db demo.db --kayit demo_bilinen_cihazlar.csv
 """
 
+import csv
 import os
 from datetime import datetime, timedelta
 
@@ -107,12 +109,40 @@ def demo_veritabani(yol="demo.db", gun_sayisi=14):
     return yol
 
 
+# Bilinen cihaz listesi: telefon ve misafir dizustu bilerek listede yok (tanimsiz gorunsunler)
+DEMO_KAYITLAR = [
+    ("00:1B:54:10:00:01", "Ana router", "BT", "Sistem odasi"),
+    ("00:1B:54:10:00:02", "Kat 1 switch", "BT", "Kat 1 dolap"),
+    ("00:0C:29:A1:B2:10", "Etki alani denetleyicisi", "BT", "Sanal sunucu"),
+    ("00:0C:29:A1:B2:11", "Dosya sunucusu", "BT", "Sanal sunucu"),
+    ("B0:7B:25:3C:11:21", "Muhasebe masaustu", "Muhasebe", "Kat 2"),
+    ("54:E1:AD:7F:22:22", "BT dizustu", "BT", "Kat 1"),
+    ("3C:52:82:19:23:23", "Uretim masaustu", "Uretim", "Atolye"),
+    ("A0:D3:C1:50:50:50", "Muhasebe yazicisi", "Muhasebe", "Kat 2"),
+    ("00:17:C8:51:51:51", "Uretim yazicisi", "Uretim", "Atolye"),
+    ("00:80:77:52:52:52", "Depo yazicisi", "Depo", "Depo"),
+    ("BC:AD:28:70:70:70", "Giris kamerasi", "Guvenlik", "Ana giris"),
+    ("3C:EF:8C:71:71:71", "Otopark kamerasi", "Guvenlik", "Otopark"),
+    ("BC:AD:28:80:80:80", "Kayit cihazi (NVR)", "Guvenlik", "Sistem odasi"),
+]
+
+
+def demo_liste(yol="demo_bilinen_cihazlar.csv"):
+    with open(yol, "w", encoding="utf-8-sig", newline="") as f:
+        yazici = csv.writer(f, delimiter=";")
+        yazici.writerow(["kimlik", "ad", "sahip", "konum", "not"])
+        for kimlik, ad, sahip, konum in DEMO_KAYITLAR:
+            yazici.writerow([kimlik, ad, sahip, konum, ""])
+    return yol
+
+
 if __name__ == "__main__":
     yol = html_yaz(DEMO_CIHAZLAR, klasor="raporlar", on_ek="demo",
                    ag=f"{DEMO_AG} (DEMO VERI)", toner_esigi=20)
     print(f"Demo rapor yazildi     : {yol}")
     db = demo_veritabani()
     print(f"Demo veritabani yazildi: {db} (14 gunluk ornek gecmis)")
+    print(f"Demo cihaz listesi     : {demo_liste()}")
     print()
     print("Raporu acmak icin : start " + yol.replace("/", "\\"))
-    print("Paneli acmak icin : python panel.py --db demo.db")
+    print("Paneli acmak icin : python panel.py --db demo.db --kayit demo_bilinen_cihazlar.csv")

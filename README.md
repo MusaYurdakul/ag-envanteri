@@ -22,6 +22,7 @@ Bilgisayar Programcılığı stajı sürecinde geliştirilmiştir.
 - **Tarama geçmişi:** SQLite veritabanında her cihazın ilk/son görülme zamanı, kullandığı IP adresleri ve bir IP'yi zaman içinde hangi cihazların kullandığı sorgulanabilir.
 - **E-posta bildirimi:** Yeni, erişilemeyen veya değişen cihaz ve düşük toner durumunda otomatik bildirim. Değişiklik yoksa e-posta gönderilmez.
 - **Zamanlanmış çalıştırma:** Windows Görev Zamanlayıcı ile belirli saatlerde otomatik tarama.
+- **Bilinen cihaz listesi ve tanımsız cihaz tespiti:** Cihazlara ad, sahip ve konum verilebilir; listede olmayan bir cihaz ağa bağlandığında e-postada ve panelde ayrıca uyarı verilir.
 - **Tarama güvenlik kilidi:** Yasaklı ağlarla çakışan veya bilgisayarın doğrudan bağlı olmadığı aralıkların taranmasını engeller.
 
 ![Arama ve tip gerekçesi](docs/arama.png)
@@ -95,7 +96,7 @@ Raporlar `raporlar/`, günlük kayıtları `loglar/` klasörüne yazılır.
 
 ```
 python panel.py                 # http://127.0.0.1:5000 adresini tarayicida acar
-python panel.py --db demo.db    # demo verisiyle
+python panel.py --db demo.db --kayit demo_bilinen_cihazlar.csv   # demo verisiyle
 ```
 
 ![Web paneli](docs/panel.png)
@@ -103,6 +104,23 @@ python panel.py --db demo.db    # demo verisiyle
 Panel `envanter.db`'deki tarama geçmişini gösterir: özet kartları ve taramalara göre cihaz sayısı grafiği, tip dağılımı, son 7 günde ilk kez görülen ve uzun süredir görülmeyen cihazlar, tüm cihazların aranabilir ve sıralanabilir listesi, her cihaz için kullandığı IP adresleri ve tarama tarama geçmişi. Üstteki arama kutusu IP adresi girildiğinde o adresi zaman içinde hangi cihazların kullandığını gösterir.
 
 Güvenlik açısından panel yalnızca `127.0.0.1` üzerinde dinler, yani ağdaki başka bilgisayarlar erişemez; veritabanını salt okunur modda açar, panelden veri değiştirilemez.
+
+### Bilinen cihazlar ve tanımsız cihaz tespiti
+
+Ağdaki cihazlar `bilinen_cihazlar.csv` dosyasında tanımlanır. Dosya Excel ile düzenlenebilir; her satırda cihazın kimliği (MAC adresi ya da IP), adı, sahibi, konumu ve notu bulunur. Örnek için `bilinen_cihazlar.ornek.csv` dosyasına bakın.
+
+```
+python kayitli_cihazlar.py --olustur    # veritabanindaki cihazlarla listeyi olusturur / eksikleri ekler
+python kayitli_cihazlar.py              # son taramadaki tanimsiz cihazlari gosterir
+```
+
+`--olustur` o ana kadar görülen tüm cihazları listeye ekler; mevcut satırlara ve yazılan adlara dokunmaz. Listede olmayan bir cihaz ağa bağlandığında:
+
+- e-postanın en üstünde ayrı bir uyarı bölümü çıkar ve konu satırı "UYARI" ile başlar,
+- web panelinde kırmızı "Tanımsız" rozetiyle işaretlenir ve özet sayfasında listelenir,
+- her taramada günlük kaydına yazılır.
+
+Kayıtlı cihazlar e-postada ve panelde adlarıyla gösterilir. Liste dosyası yoksa özellik kapalıdır.
 
 ### Zamanlanmış çalıştırma
 
@@ -133,7 +151,8 @@ python test_karsilastir.py    # MAC tabanli karsilastirma (8 senaryo)
 python test_veritabani.py     # tarama gecmisi (10 senaryo)
 python test_cihaz_tipi.py     # cihaz tipi tahmini (10 senaryo)
 python test_guvenlik.py       # tarama guvenlik kilidi (9 senaryo)
-python test_panel.py          # web paneli (12 senaryo)
+python test_kayitli_cihazlar.py   # bilinen cihaz listesi (9 senaryo)
+python test_panel.py          # web paneli (16 senaryo)
 ```
 
 ## Proje yapısı
@@ -153,9 +172,11 @@ python test_panel.py          # web paneli (12 senaryo)
 | `karsilastir.py` | MAC tabanlı rapor karşılaştırma |
 | `veritabani.py` | SQLite tarama geçmişi ve sorgular |
 | `bildirim.py` | E-posta bildirimi |
+| `kayitli_cihazlar.py` | Bilinen cihaz listesi, tanımsız cihaz tespiti |
 | `panel.py` | Yerel, salt okunur web paneli (Flask) |
 | `demo.py` | Demo rapor ve demo veritabanı üretimi |
 | `envanter_calistir.bat` | Zamanlanmış görev için başlatıcı |
+| `bilinen_cihazlar.ornek.csv` | Bilinen cihaz listesi örneği |
 
 ## Bilinen sınırlamalar
 

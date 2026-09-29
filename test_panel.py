@@ -32,9 +32,11 @@ def main():
     sonuclar = []
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as klasor:
         db = os.path.join(klasor, "test.db")
+        liste_yok = os.path.join(klasor, "yok.csv")
+        liste = os.path.join(klasor, "bilinen.csv")
 
         # Veritabani yokken
-        istemci = uygulama_olustur(db).test_client()
+        istemci = uygulama_olustur(db, liste_yok).test_client()
         r = istemci.get("/")
         sonuclar.append(kontrol("1) Veritabani yokken acilis sayfasi calisiyor",
                                 r.status_code == 200 and "Veritabanı yok" in r.get_data(as_text=True)))
@@ -47,7 +49,7 @@ def main():
                    cihaz("192.168.1.50", "08:00:27:BB:BB:50", "<script>alert(1)</script>", "Hikvision", "554")],
                   "192.168.1.0/24", "r2.xlsx", simdi - timedelta(hours=1), db)
 
-        istemci = uygulama_olustur(db).test_client()
+        istemci = uygulama_olustur(db, liste_yok).test_client()
 
         r = istemci.get("/")
         metin = r.get_data(as_text=True)
@@ -92,7 +94,7 @@ def main():
         with sqlite3.connect(db) as once:
             cihaz_sayisi = once.execute("SELECT COUNT(*) FROM cihazlar").fetchone()[0]
         once.close()
-        with uygulama_olustur(db).app_context():
+        with uygulama_olustur(db, liste_yok).app_context():
             from panel import _baglan
             baglanti = _baglan()
             try:
@@ -104,6 +106,30 @@ def main():
                 baglanti.close()
         sonuclar.append(kontrol("12) Panel baglantisi salt okunur (silme reddedildi)",
                                 not yazabildi and cihaz_sayisi == 3))
+
+        r = istemci.get("/cihazlar")
+        sonuclar.append(kontrol("13) Bilinen cihaz listesi yokken 'Tanimsiz' hic gorunmuyor",
+                                "Tanımsız" not in r.get_data(as_text=True)))
+
+        # Bilinen cihaz listesi: PC-A kayitli, kamera kayitsiz
+        with open(liste, "w", encoding="utf-8-sig", newline="") as f:
+            f.write("kimlik;ad;sahip;konum;not\n08-00-27-aa-aa-01;Muhasebe PC;Ayşe;Kat 2;\n"
+                    "08:00:27:AA:AA:09;Depo yazıcısı;BT;Depo;\n")
+        istemci = uygulama_olustur(db, liste).test_client()
+
+        metin = istemci.get("/cihazlar").get_data(as_text=True)
+        sonuclar.append(kontrol("14) Kayitli cihaz adiyla, kayitsiz kamera 'Tanimsiz' rozetiyle gorunuyor",
+                                "Muhasebe PC" in metin and "Ayşe" in metin and metin.count("Tanımsız") == 1))
+
+        metin = istemci.get("/").get_data(as_text=True)
+        sonuclar.append(kontrol("15) Ozet: aktif tanimsiz cihaz karti ve listesi",
+                                "Aktif tanımsız cihaz" in metin and "192.168.1.50" in metin
+                                and "listesinde olmayan" in metin))
+
+        metin = istemci.get("/cihaz/MAC:08:00:27:BB:BB:50").get_data(as_text=True)
+        detay_pc = istemci.get("/cihaz/MAC:08:00:27:AA:AA:01").get_data(as_text=True)
+        sonuclar.append(kontrol("16) Detay: tanimsizda uyari, kayitlida sahip/konum bilgisi",
+                                "Tanımsız cihaz" in metin and "Kayıt bilgisi" in detay_pc and "Kat 2" in detay_pc))
 
     basarili = sum(sonuclar)
     print(f"\n{basarili}/{len(sonuclar)} senaryo gecti.")

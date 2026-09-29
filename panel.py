@@ -3,6 +3,8 @@ panel.py — Tarama gecmisini gosteren yerel, salt okunur web paneli.
 
 envanter.db'deki verileri tarayicida gosterir: ozet ve grafikler, tum cihazlar,
 cihaz bazinda IP ve tarama gecmisi, tarama listesi, IP / MAC / hostname aramasi.
+bilinen_cihazlar.csv varsa cihazlar adlariyla gosterilir, listede olmayanlar
+"tanimsiz" olarak isaretlenir.
 
 Guvenlik:
   - Yalnizca 127.0.0.1 uzerinde dinler; agdaki baska bilgisayarlar erisemez.
@@ -12,6 +14,7 @@ Calistirma:
     python panel.py                  # http://127.0.0.1:5000 adresini tarayicida acar
     python panel.py --port 8080
     python panel.py --tarayici-acma
+    python panel.py --db demo.db --kayit demo_bilinen_cihazlar.csv
 """
 
 import argparse
@@ -26,6 +29,7 @@ from pathlib import Path
 from flask import Flask, abort, current_app, redirect, render_template, request, url_for
 from jinja2 import DictLoader
 
+import kayitli_cihazlar as kc
 from cihaz_tipi import tip_tahmin
 from karsilastir import mac_normallestir
 from veritabani import VARSAYILAN_DB, ZAMAN_BICIMI
@@ -57,8 +61,12 @@ def _son_tarama_zamani(db):
     return satir[0] if satir else None
 
 
-def cihaz_listesi(db):
-    """Tum cihazlari son gozlemleriyle birlikte, tip ve durum bilgisiyle dondurur."""
+def _kayitlar():
+    return kc.oku(current_app.config["KAYIT_YOLU"])
+
+
+def cihaz_listesi(db, kayitlar=None):
+    """Tum cihazlari son gozlemleriyle, tip, durum ve kayit bilgisiyle dondurur."""
     son_zaman = _son_tarama_zamani(db)
     simdi = datetime.now()
 
@@ -85,6 +93,11 @@ def cihaz_listesi(db):
         })
         c["tip"] = tahmin["tip"]
         c["tip_gerekce"] = f"{tahmin['guven']} guven: {tahmin['gerekce']}"
+
+        c["kayit"] = kc.bul(kayitlar, c["mac"], c["son_ip"])
+        c["tanimsiz"] = kayitlar is not None and c["kayit"] is None
+        c["gorunen_ad"] = ((c["kayit"] or {}).get("ad")
+                           or (c["son_hostname"] if c["son_hostname"] != "-" else c["son_ip"]))
 
         if c["son_gorulme"] == son_zaman:
             c["durum"], c["aktif"] = "Aktif", True
@@ -119,9 +132,10 @@ def _grafik(seri, genislik=640, yukseklik=170, bosluk=28):
 # --- uygulama --------------------------------------------------------------
 
 
-def uygulama_olustur(db_yolu=VARSAYILAN_DB):
+def uygulama_olustur(db_yolu=VARSAYILAN_DB, kayit_yolu=kc.VARSAYILAN_YOL):
     app = Flask(__name__)
     app.config["DB_YOLU"] = db_yolu
+    app.config["KAYIT_YOLU"] = kayit_yolu
     app.jinja_env.loader = DictLoader(SABLONLAR)
 
     @app.template_filter("tarih")
@@ -131,7 +145,8 @@ def uygulama_olustur(db_yolu=VARSAYILAN_DB):
 
     @app.context_processor
     def genel_degiskenler():
-        return {"db_adi": os.path.basename(current_app.config["DB_YOLU"])}
+        return {"db_adi": os.path.basename(current_app.config["DB_YOLU"]),
+                "kayit_adi": os.path.basename(current_app.config["KAYIT_YOLU"])}
 
     @app.route("/")
     def ozet():
@@ -151,8 +166,10 @@ def uygulama_olustur(db_yolu=VARSAYILAN_DB):
             seri = list(reversed(db.execute(
                 "SELECT zaman, cihaz_sayisi, ag FROM taramalar ORDER BY zaman DESC, id DESC LIMIT 30"
             ).fetchall()))
-            cihazlar = cihaz_listesi(db)
+            kayitlar = _kayitlar()
+            cihazlar = cihaz_listesi(db, kayitlar)
 
+        tanimsizlar = [c for c in cihazlar if c["tanimsiz"] and c["aktif"]]
         esik = (datetime.now() - timedelta(days=7)).strftime(ZAMAN_BICIMI)
         yeniler = [c for c in cihazlar if c["ilk_gorulme"] >= esik][:10]
         kayiplar = sorted((c for c in cihazlar if c["son_gorulme"] < esik),
@@ -170,6 +187,7 @@ def uygulama_olustur(db_yolu=VARSAYILAN_DB):
             toplam_cihaz=len(cihazlar), aktif=sum(c["aktif"] for c in cihazlar),
             grafik=_grafik(seri), yeniler=yeniler, kayiplar=kayiplar,
             tip_dagilimi=tip_dagilimi, en_cok_tip=en_cok_tip,
+            kayit_acik=kayitlar is not None, tanimsizlar=tanimsizlar,
         )
 
     @app.route("/cihazlar")
@@ -178,7 +196,7 @@ def uygulama_olustur(db_yolu=VARSAYILAN_DB):
         if db is None:
             return render_template("bos.html", baslik="Veritabanı yok")
         with closing(db):
-            liste = cihaz_listesi(db)
+            liste = cihaz_listesi(db, _kayitlar())
         return render_template("cihazlar.html", baslik="Cihazlar", cihazlar=liste)
 
     @app.route("/cihaz/<path:anahtar>")
@@ -187,7 +205,8 @@ def uygulama_olustur(db_yolu=VARSAYILAN_DB):
         if db is None:
             abort(404)
         with closing(db):
-            c = next((x for x in cihaz_listesi(db) if x["anahtar"] == anahtar), None)
+            kayitlar = _kayitlar()
+            c = next((x for x in cihaz_listesi(db, kayitlar) if x["anahtar"] == anahtar), None)
             if c is None:
                 abort(404)
             gecmis = db.execute(
@@ -202,8 +221,8 @@ def uygulama_olustur(db_yolu=VARSAYILAN_DB):
                    WHERE g.anahtar = ? GROUP BY g.ip ORDER BY son DESC""",
                 (anahtar,),
             ).fetchall()
-        return render_template("cihaz.html", baslik=c["son_hostname"] if c["son_hostname"] != "-" else c["son_ip"],
-                               c=c, gecmis=gecmis, ipler=ipler)
+        return render_template("cihaz.html", baslik=c["gorunen_ad"], c=c, gecmis=gecmis, ipler=ipler,
+                               kayit_acik=kayitlar is not None)
 
     @app.route("/taramalar")
     def taramalar():
@@ -303,6 +322,8 @@ SABLONLAR = {
   .kartlar { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
   .kart { background:var(--kart); border:1px solid var(--cizgi); border-radius:10px; padding:16px; }
   .kart b { display:block; font-size:26px; line-height:1.2; } .kart span { color:var(--soluk); font-size:13px; }
+  .kart.uyari { border-color:var(--kirmizi); } .kart.uyari b, .kart.uyari h2 { color:var(--kirmizi); }
+  .kucuk { font-size:12px; }
   .izgara { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:16px; }
   .izgara-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   @media (max-width:860px) { .izgara, .izgara-2 { grid-template-columns:1fr; } }
@@ -337,7 +358,7 @@ SABLONLAR = {
   <form action="{{ url_for('ara') }}"><input name="q" placeholder="IP, MAC veya hostname ara" value="{{ q or '' }}"></form>
 </div></header>
 <main class="kap">{% block icerik %}{% endblock %}</main>
-<footer class="kap">Salt okunur panel · {{ db_adi }} · yalnızca bu bilgisayardan erişilebilir</footer>
+<footer class="kap">Salt okunur panel · {{ db_adi }} · {{ kayit_adi }} · yalnızca bu bilgisayardan erişilebilir</footer>
 <script>
 document.querySelectorAll("table.siralanir").forEach(function (tablo) {
   var govde = tablo.tBodies[0], satirlar = Array.prototype.slice.call(govde.rows);
@@ -372,7 +393,19 @@ if (kutu) kutu.addEventListener("input", function () {
   <div class="kart"><b>{{ aktif }}</b><span>Son taramada aktif</span></div>
   <div class="kart"><b>{{ t.sayi }}</b><span>Tarama</span></div>
   <div class="kart"><b>{{ yeniler|length }}</b><span>Son 7 günde yeni cihaz</span></div>
+  {% if kayit_acik %}<div class="kart {{ 'uyari' if tanimsizlar }}"><b>{{ tanimsizlar|length }}</b><span>Aktif tanımsız cihaz</span></div>{% endif %}
 </div>
+{% if kayit_acik %}
+<div class="kart {{ 'uyari' if tanimsizlar }}" style="margin-bottom:16px">
+  <h2>{{ 'Son taramada bilinen cihaz listesinde olmayan cihazlar' if tanimsizlar else 'Son taramadaki tüm cihazlar bilinen cihaz listesinde' }}</h2>
+  {% if tanimsizlar %}<table><thead><tr><th>IP</th><th>Tip</th><th>MAC</th><th>Üretici</th><th>Hostname</th><th>İlk görülme</th></tr></thead><tbody>
+  {% for c in tanimsizlar %}<tr><td class="mono"><a href="{{ url_for('cihaz', anahtar=c.anahtar) }}">{{ c.son_ip }}</a></td>
+    <td>{{ c.tip }}</td><td class="mono">{{ c.mac or '-' }}</td><td>{{ c.uretici }}</td><td>{{ c.son_hostname }}</td><td>{{ c.ilk_gorulme|tarih }}</td></tr>{% endfor %}
+  </tbody></table>
+  <p class="soluk kucuk" style="margin:8px 0 0">Tanıdığın bir cihazsa <span class="mono">{{ kayit_adi }}</span> dosyasına ekle ya da <span class="mono">python kayitli_cihazlar.py --olustur</span> çalıştır.</p>
+  {% endif %}
+</div>
+{% endif %}
 <div class="izgara">
   <div class="kart">
     <h2>Taramalara göre cihaz sayısı</h2>
@@ -400,13 +433,13 @@ if (kutu) kutu.addEventListener("input", function () {
 <div class="izgara-2">
   <div class="kart"><h2>Son 7 günde ilk kez görülenler</h2>
     {% if yeniler %}<table><thead><tr><th>Cihaz</th><th>Tip</th><th>İlk görülme</th></tr></thead><tbody>
-    {% for c in yeniler %}<tr><td><a href="{{ url_for('cihaz', anahtar=c.anahtar) }}">{{ c.son_hostname if c.son_hostname != '-' else c.son_ip }}</a></td>
+    {% for c in yeniler %}<tr><td><a href="{{ url_for('cihaz', anahtar=c.anahtar) }}">{{ c.gorunen_ad }}</a>{% if c.tanimsiz %} <span class="rozet pasif">Tanımsız</span>{% endif %}</td>
       <td>{{ c.tip }}</td><td>{{ c.ilk_gorulme|tarih }}</td></tr>{% endfor %}
     </tbody></table>{% else %}<p class="soluk">Yok.</p>{% endif %}
   </div>
   <div class="kart"><h2>7 günden uzun süredir görülmeyenler</h2>
     {% if kayiplar %}<table><thead><tr><th>Cihaz</th><th>Tip</th><th>Son görülme</th></tr></thead><tbody>
-    {% for c in kayiplar %}<tr><td><a href="{{ url_for('cihaz', anahtar=c.anahtar) }}">{{ c.son_hostname if c.son_hostname != '-' else c.son_ip }}</a></td>
+    {% for c in kayiplar %}<tr><td><a href="{{ url_for('cihaz', anahtar=c.anahtar) }}">{{ c.gorunen_ad }}</a></td>
       <td>{{ c.tip }}</td><td>{{ c.son_gorulme|tarih }}</td></tr>{% endfor %}
     </tbody></table>{% else %}<p class="soluk">Yok.</p>{% endif %}
   </div>
@@ -418,11 +451,12 @@ if (kutu) kutu.addEventListener("input", function () {
 <p class="alt">Bugüne kadar görülen {{ cihazlar|length }} cihaz · başlığa tıklayarak sırala</p>
 <input id="ara" type="search" placeholder="Listede ara: IP, hostname, MAC, üretici, tip...">
 <div class="tablo-kap"><table id="cihaz-tablosu" class="siralanir">
-<thead><tr><th>Durum</th><th>Son IP</th><th>Tip</th><th>Hostname</th><th>MAC</th><th>Üretici</th><th>İlk görülme</th><th>Son görülme</th><th>Tarama</th></tr></thead>
+<thead><tr><th>Durum</th><th>Ad</th><th>Son IP</th><th>Tip</th><th>Hostname</th><th>MAC</th><th>Üretici</th><th>İlk görülme</th><th>Son görülme</th><th>Tarama</th></tr></thead>
 <tbody>
 {% for c in cihazlar %}
 <tr>
   <td data-sirala="{{ '0' if c.aktif else '1' }}"><span class="rozet {{ 'aktif' if c.aktif else 'pasif' }}">{{ c.durum }}</span></td>
+  <td data-sirala="{{ '0' if c.tanimsiz else '1' }}{{ (c.kayit or {}).get('ad', '') }}">{% if c.tanimsiz %}<span class="rozet pasif">Tanımsız</span>{% elif c.kayit %}{{ c.kayit.ad or '(adsız)' }}{% if c.kayit.sahip %}<br><span class="soluk kucuk">{{ c.kayit.sahip }}</span>{% endif %}{% else %}<span class="soluk">-</span>{% endif %}</td>
   <td class="mono"><a href="{{ url_for('cihaz', anahtar=c.anahtar) }}">{{ c.son_ip }}</a></td>
   <td><span class="tip" title="{{ c.tip_gerekce }}">{{ c.tip }}</span></td>
   <td>{{ c.son_hostname }}</td>
@@ -439,7 +473,7 @@ if (kutu) kutu.addEventListener("input", function () {
     "cihaz.html": """{% extends "temel.html" %}{% block icerik %}
 <p class="alt" style="margin-bottom:6px"><a href="{{ url_for('cihazlar') }}">← Cihazlar</a></p>
 <h1>{{ baslik }} <span class="rozet {{ 'aktif' if c.aktif else 'pasif' }}" style="font-size:13px;vertical-align:middle">{{ c.durum }}</span></h1>
-<p class="alt"><span class="tip" title="{{ c.tip_gerekce }}">{{ c.tip }}</span> · {{ c.uretici }}</p>
+<p class="alt"><span class="tip" title="{{ c.tip_gerekce }}">{{ c.tip }}</span> · {{ c.uretici }}{% if c.kayit and c.kayit.konum %} · {{ c.kayit.konum }}{% endif %}{% if c.tanimsiz %} · <span class="rozet pasif">Tanımsız</span>{% endif %}</p>
 <div class="kartlar">
   <div class="kart"><b class="mono" style="font-size:18px">{{ c.son_ip }}</b><span>Son IP</span></div>
   <div class="kart"><b class="mono" style="font-size:18px">{{ c.mac or '-' }}</b><span>MAC adresi</span></div>
@@ -453,8 +487,23 @@ if (kutu) kutu.addEventListener("input", function () {
       <td>{{ i.ilk|tarih }}</td><td>{{ i.son|tarih }}</td><td>{{ i.sayi }}</td></tr>{% endfor %}
     </tbody></table>
   </div>
+  <div>
+  {% if c.kayit %}
+  <div class="kart" style="margin-bottom:16px"><h2>Kayıt bilgisi</h2>
+    <table><tbody>
+      <tr><td class="soluk">Ad</td><td>{{ c.kayit.ad or '-' }}</td></tr>
+      <tr><td class="soluk">Sahip</td><td>{{ c.kayit.sahip or '-' }}</td></tr>
+      <tr><td class="soluk">Konum</td><td>{{ c.kayit.konum or '-' }}</td></tr>
+      <tr><td class="soluk">Not</td><td>{{ c.kayit.not or '-' }}</td></tr>
+    </tbody></table></div>
+  {% elif c.tanimsiz %}
+  <div class="kart uyari" style="margin-bottom:16px"><h2>Tanımsız cihaz</h2>
+    <p>Bu cihaz <span class="mono">{{ kayit_adi }}</span> listesinde yok.</p>
+    <p class="soluk kucuk">Tanıdığın bir cihazsa listeye kimlik olarak <span class="mono">{{ c.mac or c.son_ip }}</span> ile ekleyebilirsin.</p></div>
+  {% endif %}
   <div class="kart"><h2>Tip tahmininin gerekçesi</h2><p>{{ c.tip_gerekce }}</p>
-    <p class="soluk" style="font-size:12px">Tahmin, son gözlemdeki port, üretici, hostname ve MAC bilgisine dayanır.</p></div>
+    <p class="soluk kucuk">Tahmin, son gözlemdeki port, üretici, hostname ve MAC bilgisine dayanır.</p></div>
+  </div>
 </div>
 <h2>Tarama geçmişi</h2>
 <div class="tablo-kap"><table>
@@ -509,6 +558,7 @@ if (kutu) kutu.addEventListener("input", function () {
 if __name__ == "__main__":
     ayristirici = argparse.ArgumentParser(description="Ag envanteri web paneli (salt okunur, yerel)")
     ayristirici.add_argument("--db", default=VARSAYILAN_DB, help="Veritabani dosyasi")
+    ayristirici.add_argument("--kayit", default=kc.VARSAYILAN_YOL, help="Bilinen cihaz listesi (CSV)")
     ayristirici.add_argument("--port", type=int, default=5000)
     ayristirici.add_argument("--tarayici-acma", action="store_true", help="Tarayiciyi otomatik acma")
     arg = ayristirici.parse_args()
@@ -517,4 +567,4 @@ if __name__ == "__main__":
     print(f"Panel: {adres}   (kapatmak icin Ctrl+C)")
     if not arg.tarayici_acma:
         webbrowser.open(adres)
-    uygulama_olustur(arg.db).run(host="127.0.0.1", port=arg.port, debug=False)
+    uygulama_olustur(arg.db, arg.kayit).run(host="127.0.0.1", port=arg.port, debug=False)

@@ -1,0 +1,4 @@
+kimlik;ad;sahip;konum;not
+00:1B:54:10:00:01;Ana router;BT;Sistem odasi;
+08:00:27:AA:BB:CC;Muhasebe yazicisi;Muhasebe;Kat 2;Toner siparisi BT uzerinden
+192.168.1.1;Modem;BT;Sistem odasi;MAC bilinmeyen cihazlar IP ile yazilabilir
